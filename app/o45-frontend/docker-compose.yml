@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  # 生产模式：使用 Dockerfile_rtc_test.local（推荐，使用公共镜像）
+  web-prod:
+    build:
+      context: .
+      dockerfile: Dockerfile_rtc_test.local
+    container_name: three-o-fe-prod
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+    networks:
+      - frontend-network
+    profiles:
+      - prod
+
+  # 开发模式：使用 Vite 开发服务器（热更新）
+  web-dev:
+    image: node:20-alpine
+    container_name: three-o-fe-dev
+    working_dir: /app
+    ports:
+      - "8088:8088"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: sh -c "npm install && npm run dev"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=development
+    networks:
+      - frontend-network
+    profiles:
+      - dev
+
+networks:
+  frontend-network:
+    driver: bridge
+

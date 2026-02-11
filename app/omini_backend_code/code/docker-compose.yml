@@ -1,0 +1,53 @@
+services:
+  # 后端服务
+  minicpmo-backend:
+    image: modelbest-registry.cn-beijing.cr.aliyuncs.com/modelbest/minicpm-web-backend:release_local-202602041716-f6c831
+    container_name: minicpmo-backend
+    ports:
+      - "8021:8021"
+    environment:
+      - APP_ENV=local
+      - HOST=0.0.0.0
+      - PORT=8021
+      - LOG_LEVEL=info
+    depends_on:
+      - redis
+      - livekit
+    restart: unless-stopped
+    networks:
+      - minicpmo-network
+
+  # Redis 服务
+  redis:
+    image: redis:7-alpine
+    container_name: minicpmo-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - minicpmo-network
+
+  # LiveKit 服务
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: minicpmo-livekit
+    command: --config /etc/livekit.yaml
+    ports:
+      - "7880:7880"  # WebSocket (前端连接)
+      - "7881:7881"  # HTTP API
+      - "7882:7882"  # TURN TCP
+      - "50000-50100:50000-50100/udp"  # WebRTC UDP 端口范围 (前端媒体流)
+    volumes:
+      - ./config/livekit.yaml:/etc/livekit.yaml
+    restart: unless-stopped
+    networks:
+      - minicpmo-network
+
+volumes:
+  redis_data:
+
+networks:
+  minicpmo-network:
+    driver: bridge

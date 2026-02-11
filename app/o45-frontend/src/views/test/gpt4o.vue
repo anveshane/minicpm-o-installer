@@ -1,0 +1,3 @@
+<template>
+    <VoiceOrb />
+</template>

@@ -1,0 +1,64 @@
+# 本地部署配置（Docker Compose 环境）
+# 此配置会覆盖 dev.yaml 中的相同配置项
+
+# Redis配置 - 使用本地 Docker Redis
+redis:
+  host: "redis"  # Docker Compose 服务名
+  port: 6379
+  db: 0
+  password: ""  # 本地 Redis 无密码
+  username: ""
+  max_connections: 20
+  ssl: false
+  socket_timeout: 5.0
+  socket_connect_timeout: 5.0
+
+# LiveKit配置 - 本地原生部署（无 Docker）
+livekit:
+  # url: "ws://livekit:7880"  # Docker Compose 服务名（原始配置）
+  url: "ws://localhost:7880"
+  api_key: "devkey"
+  api_secret: "secretsecretsecretsecretsecretsecret"
+
+# 服务器配置
+server:
+  host: "0.0.0.0"
+  port: 8021
+  debug: false
+  reload: false
+  workers: 1
+  data_root_dir: "/app/data"
+  tts_bin_dir: "/app/tts_bin"
+
+# 日志配置
+logging:
+  level: "INFO"
+  enable_console: true
+  enable_file: true
+  enable_unified_file: true
+  max_file_size: 20971520
+  backup_count: 20
+  log_dir: "logs"
+
+# CORS配置
+cors:
+  allow_origins:
+    - "*"
+  allow_credentials: true
+  allow_methods:
+    - "*"
+  allow_headers:
+    - "*"
+
+# 心跳监控配置
+heartbeat:
+  lock_key: "inference:heartbeat:lock:local"
+  lock_timeout: 20
+  monitoring_interval: 10
+  cleanup_interval: 20
+
+# 推理服务管理配置
+inference_service:
+  services_key: "inference:services:local"
+  heartbeat_timeout: 20
+  lock_timeout: 200

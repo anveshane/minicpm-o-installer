@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Canvas烟雾流动动画</title>
+        <style>
+            body {
+                margin: 0;
+                padding: 20px;
+                background: #fff;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 100vh;
+            }
+            .canvas-container {
+                width: 400px;
+                height: 400px;
+                border-radius: 50%;
+                overflow: hidden;
+            }
+            canvas {
+                display: block;
+            }
+            .controls {
+                position: absolute;
+                top: 20px;
+                left: 20px;
+                color: #333;
+            }
+            button {
+                margin: 5px;
+                padding: 5px 10px;
+                background: #666;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+            }
+            button:hover {
+                background: #888;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="controls">
+            <button onclick="toggleAnimation()">暂停/播放</button>
+            <button onclick="changeStyle()">切换效果</button>
+        </div>
+        <div class="canvas-container" id="canvasContainer">
+            <canvas id="canvas"></canvas>
+        </div>
+
+        <script>
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            const container = document.getElementById('canvasContainer');
+
+            // 动态设置canvas尺寸
+            function resizeCanvas() {
+                const containerRect = container.getBoundingClientRect();
+                canvas.width = containerRect.width;
+                canvas.height = containerRect.height;
+            }
+
+            // 初始化canvas尺寸
+            resizeCanvas();
+
+            let animationId;
+            let isPlaying = true;
+            let time = 0;
+            let effectStyle = 0;
+
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = Math.min(canvas.width, canvas.height) / 2;
+
+            // 简单的柏林噪声函数
+            function noise(x, y, z = 0) {
+                const X = Math.floor(x) & 255;
+                const Y = Math.floor(y) & 255;
+                const Z = Math.floor(z) & 255;
+
+                x -= Math.floor(x);
+                y -= Math.floor(y);
+                z -= Math.floor(z);
+
+                const u = fade(x);
+                const v = fade(y);
+                const w = fade(z);
+
+                const A = p[X] + Y;
+                const AA = p[A] + Z;
+                const AB = p[A + 1] + Z;
+                const B = p[X + 1] + Y;
+                const BA = p[B] + Z;
+                const BB = p[B + 1] + Z;
+
+                return lerp(
+                    w,
+                    lerp(
+                        v,
+                        lerp(u, grad(p[AA], x, y, z), grad(p[BA], x - 1, y, z)),
+                        lerp(u, grad(p[AB], x, y - 1, z), grad(p[BB], x - 1, y - 1, z))
+                    ),
+                    lerp(
+                        v,
+                        lerp(u, grad(p[AA + 1], x, y, z - 1), grad(p[BA + 1], x - 1, y, z - 1)),
+                        lerp(u, grad(p[AB + 1], x, y - 1, z - 1), grad(p[BB + 1], x - 1, y - 1, z - 1))
+                    )
+                );
+            }
+
+            function fade(t) {
+                return t * t * t * (t * (t * 6 - 15) + 10);
+            }
+
+            function lerp(t, a, b) {
+                return a + t * (b - a);
+            }
+
+            function grad(hash, x, y, z) {
+                const h = hash & 15;
+                const u = h < 8 ? x : y;
+                const v = h < 4 ? y : h === 12 || h === 14 ? x : z;
+                return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+            }
+
+            // 置换表
+            const p = new Array(512);
+            const permutation = [
+                151, 160, 137, 91, 90, 15, 131, 13, 201, 95, 96, 53, 194, 233, 7, 225, 140, 36, 103, 30, 69, 142, 8, 99,
+                37, 240, 21, 10, 23, 190, 6, 148, 247, 120, 234, 75, 0, 26, 197, 62, 94, 252, 219, 203, 117, 35, 11, 32,
+                57, 177, 33, 88, 237, 149, 56, 87, 174, 20, 125, 136, 171, 168, 68, 175, 74, 165, 71, 134, 139, 48, 27,
+                166, 77, 146, 158, 231, 83, 111, 229, 122, 60, 211, 133, 230, 220, 105, 92, 41, 55, 46, 245, 40, 244,
+                102, 143, 54, 65, 25, 63, 161, 1, 216, 80, 73, 209, 76, 132, 187, 208, 89, 18, 169, 200, 196, 135, 130,
+                116, 188, 159, 86, 164, 100, 109, 198, 173, 186, 3, 64, 52, 217, 226, 250, 124, 123, 5, 202, 38, 147,
+                118, 126, 255, 82, 85, 212, 207, 206, 59, 227, 47, 16, 58, 17, 182, 189, 28, 42, 223, 183, 170, 213,
+                119, 248, 152, 2, 44, 154, 163, 70, 221, 153, 101, 155, 167, 43, 172, 9, 129, 22, 39, 253, 19, 98, 108,
+                110, 79, 113, 224, 232, 178, 185, 112, 104, 218, 246, 97, 228, 251, 34, 242, 193, 238, 210, 144, 12,
+                191, 179, 162, 241, 81, 51, 145, 235, 249, 14, 239, 107, 49, 192, 214, 31, 181, 199, 106, 157, 184, 84,
+                204, 176, 115, 121, 50, 45, 127, 4, 150, 254, 138, 236, 205, 93, 222, 114, 67, 29, 24, 72, 243, 141,
+                128, 195, 78, 66, 215, 61, 156, 180
+            ];
+            for (let i = 0; i < 256; i++) {
+                p[256 + i] = p[i] = permutation[i];
+            }
+
+            function drawSmokeEffect() {
+                // 清除画布
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // 动态获取当前canvas的中心点和半径
+                const currentCenterX = canvas.width / 2;
+                const currentCenterY = canvas.height / 2;
+                const currentRadius = Math.min(canvas.width, canvas.height) / 2;
+
+                // 创建图像数据
+                const imageData = ctx.createImageData(canvas.width, canvas.height);
+                const data = imageData.data;
+
+                for (let x = 0; x < canvas.width; x++) {
+                    for (let y = 0; y < canvas.height; y++) {
+                        // 计算距离圆心的距离
+                        const dx = x - currentCenterX;
+                        const dy = y - currentCenterY;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+
+                        if (distance <= currentRadius) {
+                            // 在圆形范围内
+                            const nx = x * 0.005 + time * 0.3; // 减慢水平移动，从0.5改为0.3
+                            const ny = y * 0.005 + time * 0.2; // 减慢垂直移动，从0.3改为0.2
+                            const nz = time * 0.1; // 减慢形变速度，从0.2改为0.1
+
+                            // 使用多层噪声创建复杂的烟雾效果 - 增加烟雾密度
+                            let noiseValue = 0;
+                            noiseValue += noise(nx, ny, nz) * 0.8; // 增加主层密度
+                            noiseValue += noise(nx * 2, ny * 2, nz * 2) * 0.5; // 增加中层密度
+                            noiseValue += noise(nx * 4, ny * 4, nz * 4) * 0.3; // 增加细节层密度
+                            noiseValue += noise(nx * 8, ny * 8, nz * 8) * 0.2; // 增加精细层密度
+                            noiseValue += noise(nx * 0.5, ny * 0.5, nz * 0.5) * 0.6; // 增加大尺度密度
+
+                            // 添加旋转效果 - 增强内部流动感
+                            const angle = Math.atan2(dy, dx);
+                            const rotationNoise = noise(
+                                Math.cos(angle) * distance * 0.008 + time * 0.8, // 减慢旋转速度
+                                Math.sin(angle) * distance * 0.008 + time * 0.8, // 减慢旋转速度
+                                time * 0.08 // 减慢旋转的时间变化
+                            );
+                            noiseValue += rotationNoise * 0.45; // 增加旋转密度，从0.35改为0.45
+
+                            // 增强内部对比度 - 让烟雾内容更清晰
+                            noiseValue = Math.pow(Math.abs(noiseValue), 0.85) * Math.sign(noiseValue); // 减少对比度，从0.7改为0.85
+
+                            // 自然的边缘渐变 - 避免圆环效果
+                            const distanceRatio = distance / currentRadius;
+                            const edgeFade = Math.pow(1 - distanceRatio, 0.3); // 进一步减少边缘衰减，从0.5改为0.3
+
+                            noiseValue *= edgeFade;
+
+                            // 计算颜色 - 8种精美配色方案
+                            let hue, saturation, lightness;
+
+                            if (effectStyle === 0) {
+                                // 优雅紫罗兰 - 深紫到紫红渐变
+                                hue = 280 + noiseValue * 20 + time * 8;
+                                saturation = 75 + Math.abs(noiseValue) * 20;
+                                lightness = 15 + Math.abs(noiseValue) * 25;
+                            } else if (effectStyle === 1) {
+                                // 深海蓝绿 - 蓝绿到青色渐变
+                                hue = 190 + noiseValue * 25 + time * 6;
+                                saturation = 80 + Math.abs(noiseValue) * 15;
+                                lightness = 18 + Math.abs(noiseValue) * 22;
+                            } else if (effectStyle === 2) {
+                                // 暖橙红调 - 深橙到酒红渐变
+                                hue = 15 + noiseValue * 30 + time * 10;
+                                saturation = 85 + Math.abs(noiseValue) * 10;
+                                lightness = 20 + Math.abs(noiseValue) * 18;
+                            } else if (effectStyle === 3) {
+                                // 森林绿调 - 深绿到翠绿渐变
+                                hue = 140 + noiseValue * 35 + time * 7;
+                                saturation = 70 + Math.abs(noiseValue) * 25;
+                                lightness = 16 + Math.abs(noiseValue) * 24;
+                            } else if (effectStyle === 4) {
+                                // 深邃蓝调 - 午夜蓝到靛蓝渐变
+                                hue = 220 + noiseValue * 25 + time * 5;
+                                saturation = 80 + Math.abs(noiseValue) * 15;
+                                lightness = 12 + Math.abs(noiseValue) * 28;
+                            } else if (effectStyle === 5) {
+                                // 玫瑰金调 - 粉金到深玫瑰渐变
+                                hue = 330 + noiseValue * 20 + time * 9;
+                                saturation = 65 + Math.abs(noiseValue) * 30;
+                                lightness = 22 + Math.abs(noiseValue) * 20;
+                            } else if (effectStyle === 6) {
+                                // 琥珀黄调 - 金黄到深琥珀渐变
+                                hue = 45 + noiseValue * 25 + time * 8;
+                                saturation = 75 + Math.abs(noiseValue) * 20;
+                                lightness = 19 + Math.abs(noiseValue) * 21;
+                            } else {
+                                // 神秘紫黑 - 深紫到黑紫渐变
+                                hue = 260 + noiseValue * 15 + time * 6;
+                                saturation = 90 + Math.abs(noiseValue) * 10;
+                                lightness = 8 + Math.abs(noiseValue) * 22;
+                            }
+
+                            // 将HSL转换为RGB
+                            const rgb = hslToRgb(hue / 360, saturation / 100, lightness / 100);
+
+                            const index = (y * canvas.width + x) * 4;
+                            data[index] = rgb[0]; // R
+                            data[index + 1] = rgb[1]; // G
+                            data[index + 2] = rgb[2]; // B
+
+                            // 简化透明度处理 - 自然渐变
+                            let alpha = (Math.abs(noiseValue) + 0.4) * 200 * edgeFade; // 大幅增加基础透明度和强度
+
+                            // 根据距离调整对比度 - 平滑过渡
+                            const contrastAdjustment = 0.8 + distanceRatio * 0.1; // 提高整体可见度，从0.75-0.9改为0.8-0.9
+                            alpha = Math.pow(alpha / 255, contrastAdjustment) * 255;
+
+                            data[index + 3] = Math.min(255, Math.max(0, alpha));
+                        }
+                    }
+                }
+
+                // 绘制图像数据
+                ctx.putImageData(imageData, 0, 0);
+            }
+
+            function hslToRgb(h, s, l) {
+                let r, g, b;
+
+                if (s === 0) {
+                    r = g = b = l;
+                } else {
+                    const hue2rgb = (p, q, t) => {
+                        if (t < 0) t += 1;
+                        if (t > 1) t -= 1;
+                        if (t < 1 / 6) return p + (q - p) * 6 * t;
+                        if (t < 1 / 2) return q;
+                        if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+                        return p;
+                    };
+
+                    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                    const p = 2 * l - q;
+                    r = hue2rgb(p, q, h + 1 / 3);
+                    g = hue2rgb(p, q, h);
+                    b = hue2rgb(p, q, h - 1 / 3);
+                }
+
+                return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+            }
+
+            function animate() {
+                if (isPlaying) {
+                    time += 0.01; // 减慢整体动画速度，从0.02改为0.01
+                    drawSmokeEffect();
+                }
+                animationId = requestAnimationFrame(animate);
+            }
+
+            function toggleAnimation() {
+                isPlaying = !isPlaying;
+            }
+
+            function changeStyle() {
+                effectStyle = (effectStyle + 1) % 8; // 改为8种模式
+            }
+
+            // 开始动画
+            animate();
+
+            // 监听窗口大小变化
+            window.addEventListener('resize', () => {
+                resizeCanvas();
+                // 重新计算中心点和半径
+                const newCenterX = canvas.width / 2;
+                const newCenterY = canvas.height / 2;
+                const newRadius = Math.min(canvas.width, canvas.height) / 2;
+            });
+        </script>
+    </body>
+</html>

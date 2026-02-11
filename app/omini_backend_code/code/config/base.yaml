@@ -1,0 +1,40 @@
+# 基础配置文件 - 所有环境共享的默认配置
+# 此文件会被环境特定配置（dev.yaml/prod.yaml/test.yaml）覆盖
+
+# 应用基础信息
+app_name: "MiniCPMO Web Backend"
+app_version: "0.1.0"
+
+# 服务器配置
+server:
+  host: "0.0.0.0"
+  port: 8021
+  debug: false
+  reload: false
+  workers: 1
+
+# 日志配置
+logging:
+  level: "INFO"
+  enable_console: true
+  enable_file: true
+  enable_unified_file: true
+  max_file_size: 20971520  # 20MB in bytes
+  backup_count: 20
+  log_dir: "logs"
+
+# CORS配置
+cors:
+  allow_origins:
+    - "*"
+  allow_credentials: true
+  allow_methods:
+    - "*"
+  allow_headers:
+    - "*"
+
+# 语音聊天配置
+voice_chat:
+  enable_voice_interruption: false  # 是否启用语音打断功能
+  voice_interruption_threshold: 0.85  # 语音打断阈值（0-1）
+

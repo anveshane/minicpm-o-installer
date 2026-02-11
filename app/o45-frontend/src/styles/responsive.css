@@ -1,0 +1,272 @@
+/**
+ * 响应式设计 CSS 变量和媒体查询
+ * 支持 PC、平板、手机三套UI
+ */
+
+:root {
+    /* ====== 断点定义 ====== */
+    --breakpoint-mobile: 767px; /* 手机最大宽度 */
+    --breakpoint-tablet-min: 768px; /* 平板最小宽度 */
+    --breakpoint-tablet-max: 1023px; /* 平板最大宽度 */
+    --breakpoint-pc: 1024px; /* PC最小宽度 */
+
+    /* ====== PC 默认样式变量 ====== */
+    --device-padding: 24px;
+    --device-font-size: 14px;
+    --device-font-size-large: 16px;
+    --device-font-size-small: 12px;
+    --device-button-size: 48px;
+    --device-icon-size: 24px;
+    --device-border-radius: 8px;
+    --device-spacing: 16px;
+    --device-header-height: 64px;
+    --device-footer-height: 80px;
+}
+
+/* ====== 平板样式 (横屏和竖屏共用) ====== */
+@media screen and (min-width: 768px) and (max-width: 1023px) {
+    :root {
+        --device-padding: 20px;
+        --device-font-size: 14px;
+        --device-font-size-large: 15px;
+        --device-font-size-small: 12px;
+        --device-button-size: 56px;
+        --device-icon-size: 28px;
+        --device-border-radius: 12px;
+        --device-spacing: 14px;
+        --device-header-height: 60px;
+        --device-footer-height: 90px;
+    }
+
+    /* 平板特定样式 */
+    .pc-only {
+        display: none !important;
+    }
+
+    .tablet-only {
+        display: block !important;
+    }
+
+    .mobile-only {
+        display: none !important;
+    }
+}
+
+/* ====== 手机样式 ====== */
+@media screen and (max-width: 767px) {
+    :root {
+        --device-padding: 16px;
+        --device-font-size: 14px;
+        --device-font-size-large: 15px;
+        --device-font-size-small: 12px;
+        --device-button-size: 64px;
+        --device-icon-size: 32px;
+        --device-border-radius: 16px;
+        --device-spacing: 12px;
+        --device-header-height: 56px;
+        --device-footer-height: 100px;
+    }
+
+    /* 手机特定样式 */
+    .pc-only {
+        display: none !important;
+    }
+
+    .tablet-only {
+        display: none !important;
+    }
+
+    .mobile-only {
+        display: block !important;
+    }
+}
+
+/* ====== PC 样式 ====== */
+@media screen and (min-width: 1024px) {
+    .pc-only {
+        display: block !important;
+    }
+
+    .tablet-only {
+        display: none !important;
+    }
+
+    .mobile-only {
+        display: none !important;
+    }
+}
+
+/* ====== 工具类 ====== */
+
+/* 隐藏类（默认隐藏，在对应设备显示） */
+.pc-only,
+.tablet-only,
+.mobile-only {
+    display: none;
+}
+
+/* Flex 工具类 */
+.mobile-only-flex {
+    display: none !important;
+}
+
+.tablet-only-flex {
+    display: none !important;
+}
+
+.pc-only-flex {
+    display: none !important;
+}
+
+@media screen and (max-width: 767px) {
+    .mobile-only-flex {
+        display: flex !important;
+    }
+}
+
+@media screen and (min-width: 768px) and (max-width: 1023px) {
+    .tablet-only-flex {
+        display: flex !important;
+    }
+}
+
+@media screen and (min-width: 1024px) {
+    .pc-only-flex {
+        display: flex !important;
+    }
+}
+
+/* ====== 横竖屏适配（主要用于平板和手机） ====== */
+
+/* 竖屏样式 */
+@media screen and (orientation: portrait) {
+    .portrait-only {
+        display: block !important;
+    }
+
+    .landscape-only {
+        display: none !important;
+    }
+
+    /* 竖屏时的布局调整 */
+    .responsive-container {
+        flex-direction: column;
+    }
+}
+
+/* 横屏样式 */
+@media screen and (orientation: landscape) {
+    .portrait-only {
+        display: none !important;
+    }
+
+    .landscape-only {
+        display: block !important;
+    }
+
+    /* 横屏时的布局调整 */
+    .responsive-container {
+        flex-direction: row;
+    }
+}
+
+/* ====== 组合类（设备类型 + 方向） ====== */
+
+/* 手机竖屏 */
+@media screen and (max-width: 767px) and (orientation: portrait) {
+    .mobile-portrait-only {
+        display: block !important;
+    }
+}
+
+/* 手机横屏 */
+@media screen and (max-width: 767px) and (orientation: landscape) {
+    .mobile-landscape-only {
+        display: block !important;
+    }
+}
+
+/* 平板竖屏 */
+@media screen and (min-width: 768px) and (max-width: 1023px) and (orientation: portrait) {
+    .tablet-portrait-only {
+        display: block !important;
+    }
+}
+
+/* 平板横屏 */
+@media screen and (min-width: 768px) and (max-width: 1023px) and (orientation: landscape) {
+    .tablet-landscape-only {
+        display: block !important;
+    }
+}
+
+/* ====== 触摸设备优化 ====== */
+@media (hover: none) and (pointer: coarse) {
+    /* 触摸设备（平板和手机） */
+    .hover-effect {
+        /* 移除 hover 效果，避免点击后卡住 */
+        transition: none !important;
+    }
+
+    /* 增大可点击区域 */
+    button,
+    .clickable {
+        min-height: 44px;
+        min-width: 44px;
+    }
+}
+
+/* ====== 响应式容器 ====== */
+.responsive-container {
+    padding: var(--device-padding);
+    font-size: var(--device-font-size);
+}
+
+.responsive-button {
+    width: var(--device-button-size);
+    height: var(--device-button-size);
+    border-radius: var(--device-border-radius);
+}
+
+.responsive-icon {
+    width: var(--device-icon-size);
+    height: var(--device-icon-size);
+}
+
+/* ====== 调试工具类（开发环境可用） ====== */
+.debug-device::before {
+    content: 'PC';
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    z-index: 9999;
+}
+
+@media screen and (min-width: 768px) and (max-width: 1023px) {
+    .debug-device::before {
+        content: 'Tablet';
+    }
+}
+
+@media screen and (max-width: 767px) {
+    .debug-device::before {
+        content: 'Mobile';
+    }
+}
+
+@media screen and (orientation: portrait) {
+    .debug-device::after {
+        content: ' - Portrait';
+    }
+}
+
+@media screen and (orientation: landscape) {
+    .debug-device::after {
+        content: ' - Landscape';
+    }
+}

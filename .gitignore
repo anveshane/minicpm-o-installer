@@ -1,0 +1,28 @@
+# Build artifacts & runtime
+bin/
+models/
+.venv/
+logs/
+.services.json
+.certs/
+
+# Node
+app/o45-frontend/node_modules/
+app/o45-frontend/dist/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temp
+app/cpp_server/temp_streaming_prefill/
+app/cpp_server/wav_timing.log
