@@ -288,13 +288,6 @@ def download_node(profile: SystemProfile, cfg: Config) -> None:
 
 def create_venv(cfg: Config) -> None:
     """Create a Python venv and install backend dependencies."""
-    if cfg.venv_dir.exists():
-        _log("Python venv already exists, skipping creation.")
-        return
-
-    _log("Creating Python virtual environment ...")
-    subprocess.check_call([sys.executable, "-m", "venv", str(cfg.venv_dir)])
-
     # Determine python and pip paths inside venv
     if sys.platform == "win32":
         venv_python = str(cfg.venv_dir / "Scripts" / "python.exe")
@@ -303,8 +296,23 @@ def create_venv(cfg: Config) -> None:
         venv_python = str(cfg.venv_dir / "bin" / "python")
         pip = str(cfg.venv_dir / "bin" / "pip")
 
-    _log("Upgrading pip ...")
-    subprocess.check_call([venv_python, "-m", "pip", "install", "--upgrade", "pip"], stdout=subprocess.DEVNULL)
+    if not cfg.venv_dir.exists():
+        _log("Creating Python virtual environment ...")
+        subprocess.check_call([sys.executable, "-m", "venv", str(cfg.venv_dir)])
+
+        _log("Upgrading pip ...")
+        subprocess.check_call([venv_python, "-m", "pip", "install", "--upgrade", "pip"], stdout=subprocess.DEVNULL)
+
+    # Check if huggingface_hub is already installed (marks a complete venv)
+    try:
+        subprocess.check_call(
+            [venv_python, "-c", "import huggingface_hub"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        _log("Python venv already set up, skipping.")
+        return
+    except subprocess.CalledProcessError:
+        pass  # Need to install deps
 
     # Install backend dependencies from pyproject.toml
     backend_dir = cfg.app_dir / "omini_backend_code" / "code"
@@ -408,26 +416,43 @@ def build_frontend(profile: SystemProfile, cfg: Config) -> None:
         env["npm_config_registry"] = cfg.npm_registry
 
     # Install pnpm via corepack or npm
-    _log("Enabling pnpm via corepack ...")
+    npm = node_bin.parent / ("npm.cmd" if profile.os_name == "Windows" else "npm")
+    pnpm = None
+
+    # Try corepack first
     try:
         corepack = node_bin.parent / ("corepack.cmd" if profile.os_name == "Windows" else "corepack")
-        subprocess.check_call([str(corepack), "enable"], env=env, cwd=str(frontend_dir))
+        _log("Enabling pnpm via corepack ...")
+        subprocess.check_call(
+            [str(corepack), "enable"], env=env, cwd=str(frontend_dir),
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        pnpm = shutil.which("pnpm", path=str(node_bin.parent)) or shutil.which("pnpm")
     except (FileNotFoundError, subprocess.CalledProcessError):
-        _log("Corepack not available, installing pnpm via npm ...")
-        npm = node_bin.parent / ("npm.cmd" if profile.os_name == "Windows" else "npm")
-        subprocess.check_call([str(npm), "install", "-g", "pnpm"], env=env)
+        pass
 
-    pnpm = shutil.which("pnpm", path=str(node_bin.parent))
+    # Fallback: install pnpm via npm
     if not pnpm:
-        pnpm = shutil.which("pnpm")
+        _log("Corepack unavailable or outdated, installing pnpm via npm ...")
+        subprocess.check_call([str(npm), "install", "-g", "pnpm"], env=env)
+        pnpm = shutil.which("pnpm", path=str(node_bin.parent)) or shutil.which("pnpm")
+
+    # Final fallback: use npx pnpm
     if not pnpm:
-        raise RuntimeError("pnpm not found after installation.")
+        npx = node_bin.parent / ("npx.cmd" if profile.os_name == "Windows" else "npx")
+        if npx.exists():
+            _log("Using npx to run pnpm ...")
+            pnpm_cmd = [str(npx), "pnpm"]
+        else:
+            raise RuntimeError("pnpm not found after installation.")
+    else:
+        pnpm_cmd = [pnpm]
 
     _log("Installing frontend dependencies ...")
-    subprocess.check_call([pnpm, "install"], env=env, cwd=str(frontend_dir))
+    subprocess.check_call(pnpm_cmd + ["install"], env=env, cwd=str(frontend_dir))
 
     _log("Building frontend ...")
-    subprocess.check_call([pnpm, "build"], env=env, cwd=str(frontend_dir))
+    subprocess.check_call(pnpm_cmd + ["build"], env=env, cwd=str(frontend_dir))
     _log("Frontend built.")
 
 
@@ -480,3 +505,5 @@ def download_all(profile: SystemProfile, cfg: Config) -> None:
         _log("Re-run './install.sh install' to retry failed steps.")
     else:
         _log("=== All downloads complete ===")
+
+    return failures

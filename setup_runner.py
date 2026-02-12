@@ -61,6 +61,7 @@ def main() -> None:
         return
 
     # --- Install / Start ---
+    failures: list[str] = []
     if command in ("install", "start"):
         profile = detect_system()
 
@@ -76,9 +77,15 @@ def main() -> None:
         print()
 
         from setup.downloader import download_all
-        download_all(profile, cfg)
+        failures = download_all(profile, cfg) or []
 
     if command == "start":
+        if failures:
+            critical = {"llama-server", "Python venv", "Models"}
+            if critical & set(failures):
+                print(f"\n  Cannot start: critical downloads failed ({', '.join(critical & set(failures))})")
+                print("  Fix the errors above and re-run: install.sh install")
+                sys.exit(1)
         from setup.services import ServiceManager
         mgr = ServiceManager(cfg)
         mgr.start_all()
