@@ -61,7 +61,10 @@ NODE_MAP: dict[tuple[str, str], str] = {
 # ---------------------------------------------------------------------------
 
 def _log(msg: str) -> None:
-    print(f"  [download] {msg}", flush=True)
+    try:
+        print(f"  [download] {msg}", flush=True)
+    except OSError:
+        print(f"  [download] {msg}")
 
 
 def _download(url: str, dest: Path, desc: str = "") -> None:

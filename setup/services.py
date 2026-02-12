@@ -22,7 +22,11 @@ from .config import Config
 
 
 def _log(msg: str) -> None:
-    print(f"  [services] {msg}", flush=True)
+    try:
+        print(f"  [services] {msg}", flush=True)
+    except OSError:
+        # WinError 87 can occur with flush=True on some Windows consoles
+        print(f"  [services] {msg}")
 
 
 # ---------------------------------------------------------------------------
