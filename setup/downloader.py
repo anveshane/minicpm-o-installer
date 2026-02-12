@@ -295,14 +295,16 @@ def create_venv(cfg: Config) -> None:
     _log("Creating Python virtual environment ...")
     subprocess.check_call([sys.executable, "-m", "venv", str(cfg.venv_dir)])
 
-    # Determine pip path
+    # Determine python and pip paths inside venv
     if sys.platform == "win32":
+        venv_python = str(cfg.venv_dir / "Scripts" / "python.exe")
         pip = str(cfg.venv_dir / "Scripts" / "pip")
     else:
+        venv_python = str(cfg.venv_dir / "bin" / "python")
         pip = str(cfg.venv_dir / "bin" / "pip")
 
     _log("Upgrading pip ...")
-    subprocess.check_call([pip, "install", "--upgrade", "pip"], stdout=subprocess.DEVNULL)
+    subprocess.check_call([venv_python, "-m", "pip", "install", "--upgrade", "pip"], stdout=subprocess.DEVNULL)
 
     # Install backend dependencies from pyproject.toml
     backend_dir = cfg.app_dir / "omini_backend_code" / "code"
