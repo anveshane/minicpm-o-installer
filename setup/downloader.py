@@ -366,10 +366,13 @@ def create_venv(cfg: Config) -> None:
 def download_models(cfg: Config, quant: str) -> None:
     """Download model files via huggingface_hub."""
     model_dir = cfg.model_dir
-    # Check if main GGUF and all support model dirs are present
+    # Check if main GGUF and all support model dirs are present and non-empty
     support_dirs = ["vision", "audio", "tts", "token2wav-gguf"]
     has_main = model_dir.exists() and any(model_dir.glob("*.gguf"))
-    has_support = all((model_dir / d).exists() for d in support_dirs)
+    has_support = all(
+        (model_dir / d).exists() and any((model_dir / d).iterdir())
+        for d in support_dirs
+    )
     if has_main and has_support:
         _log("All models already present, skipping.")
         return
