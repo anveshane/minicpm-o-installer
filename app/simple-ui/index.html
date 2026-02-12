@@ -232,19 +232,56 @@ function addFile(file) {
   });
   renderAttachments();
 
-  const reader = new FileReader();
-  reader.onload = () => {
-    const base64 = reader.result.split(',')[1];
-    attachments[idx].base64 = base64;
-    attachments[idx].loading = false;
-    renderAttachments();
-  };
-  reader.onerror = () => {
-    attachments[idx].loading = false;
-    attachments[idx].error = true;
-    renderAttachments();
-  };
-  reader.readAsDataURL(file);
+  if (isVideo) {
+    // Extract a frame from the video as JPEG (llama-server only accepts images)
+    extractVideoFrame(blobUrl).then(({ base64, mime }) => {
+      attachments[idx].base64 = base64;
+      attachments[idx].frameMime = mime;
+      attachments[idx].loading = false;
+      renderAttachments();
+    }).catch(() => {
+      attachments[idx].loading = false;
+      attachments[idx].error = true;
+      renderAttachments();
+    });
+  } else {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result.split(',')[1];
+      attachments[idx].base64 = base64;
+      attachments[idx].loading = false;
+      renderAttachments();
+    };
+    reader.onerror = () => {
+      attachments[idx].loading = false;
+      attachments[idx].error = true;
+      renderAttachments();
+    };
+    reader.readAsDataURL(file);
+  }
+}
+
+function extractVideoFrame(videoUrl) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.muted = true;
+    video.preload = 'auto';
+    video.onloadeddata = () => {
+      // Seek to 1s or 10% of duration, whichever is smaller
+      video.currentTime = Math.min(1, video.duration * 0.1);
+    };
+    video.onseeked = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+      const base64 = dataUrl.split(',')[1];
+      resolve({ base64, mime: 'image/jpeg' });
+    };
+    video.onerror = reject;
+    video.src = videoUrl;
+  });
 }
 
 function renderAttachments() {
@@ -328,9 +365,11 @@ async function sendMessage() {
       });
       displayParts.push(`<img src="${a.blobUrl}" alt="${escHtml(a.name)}">`);
     } else if (a.type === 'video') {
+      // Send extracted frame as image (llama-server only accepts image formats)
+      const frameMime = a.frameMime || 'image/jpeg';
       contentParts.push({
         type: 'image_url',
-        image_url: { url: `data:${a.mime};base64,${a.base64}` }
+        image_url: { url: `data:${frameMime};base64,${a.base64}` }
       });
       displayParts.push(`<video controls playsinline src="${a.blobUrl}"></video>`);
     } else {
