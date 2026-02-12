@@ -47,8 +47,9 @@ header .clear-btn:hover { background: #fee2e2; color: #dc2626; border-color: #fc
 }
 .msg.user .bubble { background: var(--user-bg); }
 .msg.assistant .bubble { background: var(--assistant-bg); }
-.msg .bubble img { max-width: 280px; max-height: 200px; border-radius: 8px; display: block; margin: 6px 0; }
+.msg .bubble img, .msg .bubble video { max-width: 280px; max-height: 200px; border-radius: 8px; display: block; margin: 6px 0; }
 .msg .bubble audio { display: block; margin: 6px 0; }
+.msg .bubble video { cursor: pointer; }
 .msg .bubble code { background: #e2e2e2; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
 .msg .bubble pre { background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 8px; overflow-x: auto; margin: 8px 0; }
 .msg .bubble pre code { background: none; padding: 0; color: inherit; }
@@ -77,11 +78,19 @@ header .clear-btn:hover { background: #fee2e2; color: #dc2626; border-color: #fc
   border-radius: 8px; padding: 6px 10px; font-size: 12px;
   display: flex; align-items: center; gap: 6px;
 }
-.attach-item img { height: 40px; border-radius: 4px; }
+.attach-item img, .attach-item video { height: 40px; border-radius: 4px; }
 .attach-item .remove {
   cursor: pointer; color: #999; font-size: 16px; line-height: 1;
 }
 .attach-item .remove:hover { color: #dc2626; }
+.attach-item.loading { opacity: 0.6; }
+.attach-item .spinner {
+  width: 14px; height: 14px; border: 2px solid var(--border);
+  border-top-color: var(--primary); border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+.attach-item .file-size { color: var(--text-secondary); font-size: 11px; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* Input area */
 #input-area {
@@ -132,16 +141,16 @@ body.dragging #drop-overlay { display: flex; }
 <div id="chat">
   <div class="welcome">
     <h2>MiniCPM-o Simple Chat</h2>
-    <p>Text, image, and audio multimodal chat. Upload files or type a message to get started.</p>
+    <p>Text, image, audio, and video multimodal chat. Upload files or type a message to get started.</p>
   </div>
 </div>
 
 <div id="attachments"></div>
 
 <div id="input-area">
-  <input type="file" id="file-input" accept="image/*,audio/*" multiple hidden>
+  <input type="file" id="file-input" accept="image/*,audio/*,video/*" multiple hidden>
   <!-- Image button -->
-  <button class="icon-btn" onclick="document.getElementById('file-input').click()" title="Attach image or audio">
+  <button class="icon-btn" onclick="document.getElementById('file-input').click()" title="Attach image, audio, or video">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
       <path d="m21 15-5-5L5 21"/>
@@ -163,7 +172,7 @@ const sendBtn = document.getElementById('send-btn');
 const fileInput = document.getElementById('file-input');
 
 let messages = []; // OpenAI-format message history
-let attachments = []; // { type: 'image'|'audio', name, base64, mime }
+let attachments = []; // { type: 'image'|'audio'|'video', name, base64, mime, dataUrl, loading }
 let streaming = false;
 
 // Auto-resize textarea
@@ -193,21 +202,44 @@ document.addEventListener('drop', e => {
   for (const f of e.dataTransfer.files) addFile(f);
 });
 
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
 function addFile(file) {
   const isImage = file.type.startsWith('image/');
   const isAudio = file.type.startsWith('audio/');
-  if (!isImage && !isAudio) return;
+  const isVideo = file.type.startsWith('video/');
+  if (!isImage && !isAudio && !isVideo) return;
+
+  const type = isImage ? 'image' : isVideo ? 'video' : 'audio';
+
+  // Add a loading placeholder immediately
+  const idx = attachments.length;
+  attachments.push({
+    type,
+    name: file.name,
+    size: file.size,
+    base64: null,
+    mime: file.type,
+    dataUrl: null,
+    loading: true
+  });
+  renderAttachments();
 
   const reader = new FileReader();
   reader.onload = () => {
     const base64 = reader.result.split(',')[1];
-    attachments.push({
-      type: isImage ? 'image' : 'audio',
-      name: file.name,
-      base64,
-      mime: file.type,
-      dataUrl: reader.result
-    });
+    attachments[idx].base64 = base64;
+    attachments[idx].dataUrl = reader.result;
+    attachments[idx].loading = false;
+    renderAttachments();
+  };
+  reader.onerror = () => {
+    attachments[idx].loading = false;
+    attachments[idx].error = true;
     renderAttachments();
   };
   reader.readAsDataURL(file);
@@ -215,10 +247,21 @@ function addFile(file) {
 
 function renderAttachments() {
   attachEl.innerHTML = attachments.map((a, i) => {
-    const preview = a.type === 'image'
-      ? `<img src="${a.dataUrl}" alt="${a.name}">`
-      : `<span>${a.name}</span>`;
-    return `<div class="attach-item">${preview}<span class="remove" onclick="removeAttach(${i})">&times;</span></div>`;
+    if (a.loading) {
+      return `<div class="attach-item loading"><span class="spinner"></span><span>${escHtml(a.name)}</span><span class="file-size">${formatSize(a.size)}</span></div>`;
+    }
+    if (a.error) {
+      return `<div class="attach-item"><span style="color:#dc2626">Failed</span><span>${escHtml(a.name)}</span><span class="remove" onclick="removeAttach(${i})">&times;</span></div>`;
+    }
+    let preview;
+    if (a.type === 'image') {
+      preview = `<img src="${a.dataUrl}" alt="${escHtml(a.name)}">`;
+    } else if (a.type === 'video') {
+      preview = `<video src="${a.dataUrl}" muted></video>`;
+    } else {
+      preview = `<span>${escHtml(a.name)}</span>`;
+    }
+    return `<div class="attach-item">${preview}<span class="file-size">${formatSize(a.size)}</span><span class="remove" onclick="removeAttach(${i})">&times;</span></div>`;
   }).join('');
 }
 
@@ -230,7 +273,7 @@ function removeAttach(i) {
 function clearChat() {
   messages = [];
   attachments = [];
-  chatEl.innerHTML = `<div class="welcome"><h2>MiniCPM-o Simple Chat</h2><p>Text, image, and audio multimodal chat. Upload files or type a message to get started.</p></div>`;
+  chatEl.innerHTML = `<div class="welcome"><h2>MiniCPM-o Simple Chat</h2><p>Text, image, audio, and video multimodal chat. Upload files or type a message to get started.</p></div>`;
   attachEl.innerHTML = '';
 }
 
@@ -264,6 +307,7 @@ function escHtml(s) {
 
 async function sendMessage() {
   if (streaming) return;
+  if (attachments.some(a => a.loading)) return; // wait for files to finish loading
   const text = inputEl.value.trim();
   if (!text && attachments.length === 0) return;
 
@@ -272,12 +316,20 @@ async function sendMessage() {
   const displayParts = [];
 
   for (const a of attachments) {
+    if (a.loading || a.error) continue; // skip incomplete uploads
     if (a.type === 'image') {
       contentParts.push({
         type: 'image_url',
         image_url: { url: `data:${a.mime};base64,${a.base64}` }
       });
-      displayParts.push(`<img src="${a.dataUrl}" alt="${a.name}">`);
+      displayParts.push(`<img src="${a.dataUrl}" alt="${escHtml(a.name)}">`);
+    } else if (a.type === 'video') {
+      // Send video frames as image — extract a frame for the API
+      contentParts.push({
+        type: 'image_url',
+        image_url: { url: `data:${a.mime};base64,${a.base64}` }
+      });
+      displayParts.push(`<video controls src="${a.dataUrl}" style="max-width:280px;max-height:200px;border-radius:8px"></video>`);
     } else {
       contentParts.push({
         type: 'input_audio',
