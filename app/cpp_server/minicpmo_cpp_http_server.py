@@ -638,6 +638,8 @@ def start_cpp_server(model_dir: str, gpu_devices: str, port: int):
     import platform
     server_bin = None
     candidates = [
+        os.path.join(llamacpp_root, "llama-server"),                        # Prebuilt (installer)
+        os.path.join(llamacpp_root, "llama-server.exe"),                    # Prebuilt (installer, Windows)
         os.path.join(llamacpp_root, "build/bin/llama-server"),              # Linux/macOS default
         os.path.join(llamacpp_root, "build/bin/Release/llama-server.exe"),  # Windows MSVC
         os.path.join(llamacpp_root, "build/bin/llama-server.exe"),          # Windows other
