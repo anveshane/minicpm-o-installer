@@ -326,11 +326,11 @@ def create_venv(cfg: Config) -> None:
     # Replace it with webrtcvad-wheels (prebuilt) in the dependency list.
     patched = False
     if sys.platform == "win32" and pyproject.exists():
-        text = pyproject.read_text()
+        text = pyproject.read_text(encoding="utf-8")
         if '"webrtcvad' in text and "webrtcvad-wheels" not in text:
             _log("Patching pyproject.toml: webrtcvad -> webrtcvad-wheels ...")
             text = text.replace('"webrtcvad>=2.0.10"', '"webrtcvad-wheels>=2.0.10"')
-            pyproject.write_text(text)
+            pyproject.write_text(text, encoding="utf-8")
             patched = True
 
     _log("Installing backend dependencies ...")
@@ -339,9 +339,9 @@ def create_venv(cfg: Config) -> None:
     finally:
         # Restore original pyproject.toml
         if patched:
-            text = pyproject.read_text()
+            text = pyproject.read_text(encoding="utf-8")
             text = text.replace('"webrtcvad-wheels>=2.0.10"', '"webrtcvad>=2.0.10"')
-            pyproject.write_text(text)
+            pyproject.write_text(text, encoding="utf-8")
 
     # Install cpp_server dependencies
     cpp_reqs = cfg.app_dir / "cpp_server" / "requirements.txt"
@@ -443,46 +443,55 @@ def build_frontend(profile: SystemProfile, cfg: Config) -> None:
     # older Node.js versions, so we skip it entirely and use npm directly).
     npm = node_bin.parent / ("npm.cmd" if profile.os_name == "Windows" else "npm")
 
-    # Find where npm puts global binaries
-    def _npm_global_bin() -> str:
+    # Find npm's global prefix to locate npm-installed binaries
+    def _npm_prefix() -> str:
         result = subprocess.run(
-            [str(npm), "bin", "-g"], capture_output=True, text=True, env=env,
+            [str(npm), "prefix", "-g"], capture_output=True, text=True, env=env,
         )
         return result.stdout.strip() if result.returncode == 0 else ""
 
-    def _find_pnpm() -> str | None:
-        """Find a working pnpm, preferring npm global bin over corepack shims."""
-        npm_bin = _npm_global_bin()
+    def _find_working_pnpm() -> str | None:
+        """Find a working pnpm binary (not a broken corepack shim)."""
         candidates = []
-        if npm_bin:
-            ext = ".cmd" if profile.os_name == "Windows" else ""
-            npm_pnpm = Path(npm_bin) / f"pnpm{ext}"
+        # Check npm global prefix first (where npm install -g puts things)
+        prefix = _npm_prefix()
+        if prefix:
+            if profile.os_name == "Windows":
+                npm_pnpm = Path(prefix) / "pnpm.cmd"
+            else:
+                npm_pnpm = Path(prefix) / "bin" / "pnpm"
             if npm_pnpm.exists():
                 candidates.append(str(npm_pnpm))
-        found = shutil.which("pnpm", path=str(node_bin.parent)) or shutil.which("pnpm")
-        if found:
+        # Also check PATH
+        found = shutil.which("pnpm")
+        if found and found not in candidates:
             candidates.append(found)
+        # Test each candidate
         for c in candidates:
             try:
                 subprocess.check_call(
                     [c, "--version"],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    env=env,
+                    env=env, timeout=10,
                 )
                 return c
-            except (FileNotFoundError, subprocess.CalledProcessError):
+            except (FileNotFoundError, subprocess.CalledProcessError,
+                    subprocess.TimeoutExpired):
                 continue
         return None
 
-    pnpm_path = _find_pnpm()
+    pnpm_path = _find_working_pnpm()
     if not pnpm_path:
         _log("Installing pnpm via npm ...")
         subprocess.check_call([str(npm), "install", "-g", "pnpm"], env=env)
-        pnpm_path = _find_pnpm()
-        if not pnpm_path:
-            raise RuntimeError("pnpm not found after npm install -g pnpm.")
+        pnpm_path = _find_working_pnpm()
 
-    pnpm_cmd = [pnpm_path]
+    # Final fallback: run pnpm through npm exec
+    if pnpm_path:
+        pnpm_cmd = [pnpm_path]
+    else:
+        _log("Using 'npm exec pnpm' as fallback ...")
+        pnpm_cmd = [str(npm), "exec", "--yes", "pnpm"]
 
     _log("Installing frontend dependencies ...")
     subprocess.check_call(pnpm_cmd + ["install"], env=env, cwd=str(frontend_dir))
