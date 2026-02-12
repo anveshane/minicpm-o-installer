@@ -370,7 +370,7 @@ def download_models(cfg: Config, quant: str) -> None:
     support_dirs = ["vision", "audio", "tts", "token2wav-gguf"]
     has_main = model_dir.exists() and any(model_dir.glob("*.gguf"))
     has_support = all(
-        (model_dir / d).exists() and any((model_dir / d).iterdir())
+        (model_dir / d).exists() and any((model_dir / d).rglob("*"))
         for d in support_dirs
     )
     if has_main and has_support:
