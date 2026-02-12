@@ -216,6 +216,9 @@ function addFile(file) {
 
   const type = isImage ? 'image' : isVideo ? 'video' : 'audio';
 
+  // Create a blob URL immediately for preview (avoids huge base64 in DOM)
+  const blobUrl = URL.createObjectURL(file);
+
   // Add a loading placeholder immediately
   const idx = attachments.length;
   attachments.push({
@@ -224,7 +227,7 @@ function addFile(file) {
     size: file.size,
     base64: null,
     mime: file.type,
-    dataUrl: null,
+    blobUrl,
     loading: true
   });
   renderAttachments();
@@ -233,7 +236,6 @@ function addFile(file) {
   reader.onload = () => {
     const base64 = reader.result.split(',')[1];
     attachments[idx].base64 = base64;
-    attachments[idx].dataUrl = reader.result;
     attachments[idx].loading = false;
     renderAttachments();
   };
@@ -255,9 +257,9 @@ function renderAttachments() {
     }
     let preview;
     if (a.type === 'image') {
-      preview = `<img src="${a.dataUrl}" alt="${escHtml(a.name)}">`;
+      preview = `<img src="${a.blobUrl}" alt="${escHtml(a.name)}">`;
     } else if (a.type === 'video') {
-      preview = `<video src="${a.dataUrl}" muted></video>`;
+      preview = `<video src="${a.blobUrl}" muted></video>`;
     } else {
       preview = `<span>${escHtml(a.name)}</span>`;
     }
@@ -266,6 +268,8 @@ function renderAttachments() {
 }
 
 function removeAttach(i) {
+  const a = attachments[i];
+  if (a && a.blobUrl) URL.revokeObjectURL(a.blobUrl);
   attachments.splice(i, 1);
   renderAttachments();
 }
@@ -322,20 +326,19 @@ async function sendMessage() {
         type: 'image_url',
         image_url: { url: `data:${a.mime};base64,${a.base64}` }
       });
-      displayParts.push(`<img src="${a.dataUrl}" alt="${escHtml(a.name)}">`);
+      displayParts.push(`<img src="${a.blobUrl}" alt="${escHtml(a.name)}">`);
     } else if (a.type === 'video') {
-      // Send video frames as image — extract a frame for the API
       contentParts.push({
         type: 'image_url',
         image_url: { url: `data:${a.mime};base64,${a.base64}` }
       });
-      displayParts.push(`<video controls src="${a.dataUrl}" style="max-width:280px;max-height:200px;border-radius:8px"></video>`);
+      displayParts.push(`<video controls playsinline src="${a.blobUrl}"></video>`);
     } else {
       contentParts.push({
         type: 'input_audio',
         input_audio: { data: a.base64, format: a.mime.includes('wav') ? 'wav' : 'mp3' }
       });
-      displayParts.push(`<audio controls src="${a.dataUrl}"></audio>`);
+      displayParts.push(`<audio controls src="${a.blobUrl}"></audio>`);
     }
   }
 
