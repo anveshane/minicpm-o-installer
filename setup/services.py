@@ -73,11 +73,39 @@ def get_local_ip() -> str:
 
 def _is_pid_alive(pid: int) -> bool:
     """Check if a process with the given PID is running."""
+    if sys.platform == "win32":
+        try:
+            result = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                capture_output=True, text=True, timeout=5,
+            )
+            return str(pid) in result.stdout
+        except Exception:
+            return False
     try:
         os.kill(pid, 0)
         return True
     except (OSError, ProcessLookupError):
         return False
+
+
+def _kill_pid(pid: int) -> None:
+    """Kill a process by PID, cross-platform."""
+    if sys.platform == "win32":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(pid)],
+            capture_output=True, timeout=10,
+        )
+    else:
+        try:
+            os.kill(pid, signal.SIGTERM)
+            for _ in range(10):
+                if not _is_pid_alive(pid):
+                    return
+                time.sleep(1)
+            os.kill(pid, signal.SIGKILL)
+        except (OSError, ProcessLookupError):
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -444,17 +472,7 @@ class ServiceManager:
         if info and _is_pid_alive(info["pid"]):
             pid = info["pid"]
             _log(f"Stopping {name} (PID {pid}) ...")
-            try:
-                os.kill(pid, signal.SIGTERM)
-                # Wait briefly
-                for _ in range(10):
-                    if not _is_pid_alive(pid):
-                        break
-                    time.sleep(1)
-                else:
-                    os.kill(pid, signal.SIGKILL)
-            except (OSError, ProcessLookupError):
-                pass
+            _kill_pid(pid)
 
     def show_status(self) -> None:
         """Print status of all services."""
