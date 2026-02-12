@@ -318,16 +318,30 @@ def create_venv(cfg: Config) -> None:
     except subprocess.CalledProcessError:
         pass  # Need to install deps
 
-    # On Windows, webrtcvad needs C++ Build Tools to compile from source.
-    # Install the prebuilt-wheel variant first so pip doesn't try to build it.
-    if sys.platform == "win32":
-        _log("Installing webrtcvad (prebuilt wheel) ...")
-        subprocess.check_call([pip, "install", "webrtcvad-wheels"])
-
     # Install backend dependencies from pyproject.toml
     backend_dir = cfg.app_dir / "omini_backend_code" / "code"
+    pyproject = backend_dir / "pyproject.toml"
+
+    # On Windows, webrtcvad needs C++ Build Tools to compile from source.
+    # Replace it with webrtcvad-wheels (prebuilt) in the dependency list.
+    patched = False
+    if sys.platform == "win32" and pyproject.exists():
+        text = pyproject.read_text()
+        if '"webrtcvad' in text and "webrtcvad-wheels" not in text:
+            _log("Patching pyproject.toml: webrtcvad -> webrtcvad-wheels ...")
+            text = text.replace('"webrtcvad>=2.0.10"', '"webrtcvad-wheels>=2.0.10"')
+            pyproject.write_text(text)
+            patched = True
+
     _log("Installing backend dependencies ...")
-    subprocess.check_call([pip, "install", "-e", str(backend_dir)])
+    try:
+        subprocess.check_call([pip, "install", "-e", str(backend_dir)])
+    finally:
+        # Restore original pyproject.toml
+        if patched:
+            text = pyproject.read_text()
+            text = text.replace('"webrtcvad-wheels>=2.0.10"', '"webrtcvad>=2.0.10"')
+            pyproject.write_text(text)
 
     # Install cpp_server dependencies
     cpp_reqs = cfg.app_dir / "cpp_server" / "requirements.txt"
@@ -429,25 +443,42 @@ def build_frontend(profile: SystemProfile, cfg: Config) -> None:
     # older Node.js versions, so we skip it entirely and use npm directly).
     npm = node_bin.parent / ("npm.cmd" if profile.os_name == "Windows" else "npm")
 
-    # Check if pnpm is already usable (not a broken corepack shim)
-    pnpm_path = shutil.which("pnpm", path=str(node_bin.parent)) or shutil.which("pnpm")
-    pnpm_ok = False
-    if pnpm_path:
-        try:
-            subprocess.check_call(
-                [pnpm_path, "--version"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                env=env,
-            )
-            pnpm_ok = True
-        except (FileNotFoundError, subprocess.CalledProcessError):
-            pass
+    # Find where npm puts global binaries
+    def _npm_global_bin() -> str:
+        result = subprocess.run(
+            [str(npm), "bin", "-g"], capture_output=True, text=True, env=env,
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
 
-    if not pnpm_ok:
+    def _find_pnpm() -> str | None:
+        """Find a working pnpm, preferring npm global bin over corepack shims."""
+        npm_bin = _npm_global_bin()
+        candidates = []
+        if npm_bin:
+            ext = ".cmd" if profile.os_name == "Windows" else ""
+            npm_pnpm = Path(npm_bin) / f"pnpm{ext}"
+            if npm_pnpm.exists():
+                candidates.append(str(npm_pnpm))
+        found = shutil.which("pnpm", path=str(node_bin.parent)) or shutil.which("pnpm")
+        if found:
+            candidates.append(found)
+        for c in candidates:
+            try:
+                subprocess.check_call(
+                    [c, "--version"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    env=env,
+                )
+                return c
+            except (FileNotFoundError, subprocess.CalledProcessError):
+                continue
+        return None
+
+    pnpm_path = _find_pnpm()
+    if not pnpm_path:
         _log("Installing pnpm via npm ...")
         subprocess.check_call([str(npm), "install", "-g", "pnpm"], env=env)
-        # Re-resolve after install
-        pnpm_path = shutil.which("pnpm", path=str(node_bin.parent)) or shutil.which("pnpm")
+        pnpm_path = _find_pnpm()
         if not pnpm_path:
             raise RuntimeError("pnpm not found after npm install -g pnpm.")
 
