@@ -459,7 +459,19 @@ class ServiceManager:
                 f"Run './install.sh simple' to download models."
             )
 
+        # Find vision projection model for multimodal support
+        mmproj_file = None
+        vision_dir = cfg.model_dir / "vision"
+        if vision_dir.exists():
+            for f in vision_dir.glob("*.gguf"):
+                mmproj_file = f
+                break
+
         _log(f"Model: {gguf_file.name}")
+        if mmproj_file:
+            _log(f"Vision: {mmproj_file.name}")
+        else:
+            _log("WARNING: No vision projection model found — image/video input will not work.")
         _log(f"UI: {simple_ui_dir}")
 
         # Build environment with library paths for GPU support
@@ -482,6 +494,8 @@ class ServiceManager:
             "--n-gpu-layers", "99",
             "--path", str(simple_ui_dir),
         ]
+        if mmproj_file:
+            cmd += ["--mmproj", str(mmproj_file)]
 
         self._start_process("simple", cmd, port, env, cfg.bin_dir, 180)
 
