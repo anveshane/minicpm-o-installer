@@ -111,10 +111,9 @@ def _make_executable(path: Path) -> None:
         path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
 
-def _resolve_github_latest_tag(repo: str, proxy: str = "") -> str:
-    """Get the latest release tag from GitHub API."""
+def _resolve_github_latest_tag(repo: str, proxy: str = "") -> str | None:
+    """Get the latest release tag from GitHub API. Returns None if no releases exist."""
     base = proxy.rstrip("/") if proxy else "https://api.github.com"
-    # For proxied URLs, use the GitHub API endpoint
     if proxy:
         url = f"https://api.github.com/repos/{repo}/releases/latest"
     else:
@@ -124,9 +123,14 @@ def _resolve_github_latest_tag(repo: str, proxy: str = "") -> str:
         "Accept": "application/vnd.github.v3+json",
     })
     import json
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        data = json.loads(resp.read())
-    return data["tag_name"]
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+        return data["tag_name"]
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +156,12 @@ def download_llama_server(profile: SystemProfile, cfg: Config) -> None:
     tag = cfg.llama_release_tag
     if tag == "latest":
         tag = _resolve_github_latest_tag(cfg.llama_release_repo, cfg.github_proxy)
+        if tag is None:
+            _log(f"WARNING: No releases found on {cfg.llama_release_repo}.")
+            _log(f"  The CI build may still be in progress.")
+            _log(f"  Check: https://github.com/{cfg.llama_release_repo}/actions")
+            _log(f"  Skipping llama-server download — you can re-run install later.")
+            return
         _log(f"Resolved latest llama release tag: {tag}")
 
     asset_name = f"llama-{tag}-{suffix}.zip"
@@ -428,22 +438,43 @@ def download_all(profile: SystemProfile, cfg: Config) -> None:
     quant = cfg.llm_quant or profile.recommended_quant
     _log(f"=== Starting downloads (quant={quant}, backend={profile.gpu_backend}) ===")
 
-    # 1. llama-server
-    download_llama_server(profile, cfg)
+    failures: list[str] = []
+
+    def _try(name: str, fn, *args) -> None:
+        try:
+            fn(*args)
+        except Exception as e:
+            _log(f"ERROR: {name} failed: {e}")
+            failures.append(name)
+
+    # 1. llama-server (may not have releases yet)
+    _try("llama-server", download_llama_server, profile, cfg)
 
     # 2. livekit-server
-    download_livekit(profile, cfg)
+    _try("livekit-server", download_livekit, profile, cfg)
 
     # 3. Node.js
-    download_node(profile, cfg)
+    _try("Node.js", download_node, profile, cfg)
 
     # 4. Python venv + deps
-    create_venv(cfg)
+    _try("Python venv", create_venv, cfg)
 
     # 5. Models (requires venv for huggingface_hub)
-    download_models(cfg, quant)
+    if "Python venv" not in failures:
+        _try("Models", download_models, cfg, quant)
+    else:
+        _log("Skipping model download (venv creation failed).")
+        failures.append("Models")
 
     # 6. Frontend build
-    build_frontend(profile, cfg)
+    if "Node.js" not in failures:
+        _try("Frontend build", build_frontend, profile, cfg)
+    else:
+        _log("Skipping frontend build (Node.js not available).")
+        failures.append("Frontend build")
 
-    _log("=== All downloads complete ===")
+    if failures:
+        _log(f"=== Downloads finished with errors: {', '.join(failures)} ===")
+        _log("Re-run './install.sh install' to retry failed steps.")
+    else:
+        _log("=== All downloads complete ===")
