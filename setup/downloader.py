@@ -300,8 +300,12 @@ def create_venv(cfg: Config) -> None:
         _log("Creating Python virtual environment ...")
         subprocess.check_call([sys.executable, "-m", "venv", str(cfg.venv_dir)])
 
-        _log("Upgrading pip ...")
-        subprocess.check_call([venv_python, "-m", "pip", "install", "--upgrade", "pip"], stdout=subprocess.DEVNULL)
+    # Always ensure pip is up to date (suppresses "new version available" warnings)
+    _log("Upgrading pip ...")
+    subprocess.check_call(
+        [venv_python, "-m", "pip", "install", "--upgrade", "pip"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
 
     # Check if huggingface_hub is already installed (marks a complete venv)
     try:
@@ -313,6 +317,12 @@ def create_venv(cfg: Config) -> None:
         return
     except subprocess.CalledProcessError:
         pass  # Need to install deps
+
+    # On Windows, webrtcvad needs C++ Build Tools to compile from source.
+    # Install the prebuilt-wheel variant first so pip doesn't try to build it.
+    if sys.platform == "win32":
+        _log("Installing webrtcvad (prebuilt wheel) ...")
+        subprocess.check_call([pip, "install", "webrtcvad-wheels"])
 
     # Install backend dependencies from pyproject.toml
     backend_dir = cfg.app_dir / "omini_backend_code" / "code"
@@ -415,38 +425,33 @@ def build_frontend(profile: SystemProfile, cfg: Config) -> None:
     if cfg.npm_registry:
         env["npm_config_registry"] = cfg.npm_registry
 
-    # Install pnpm via corepack or npm
+    # Install pnpm via npm (corepack's signature verification is broken on
+    # older Node.js versions, so we skip it entirely and use npm directly).
     npm = node_bin.parent / ("npm.cmd" if profile.os_name == "Windows" else "npm")
-    pnpm = None
 
-    # Try corepack first
-    try:
-        corepack = node_bin.parent / ("corepack.cmd" if profile.os_name == "Windows" else "corepack")
-        _log("Enabling pnpm via corepack ...")
-        subprocess.check_call(
-            [str(corepack), "enable"], env=env, cwd=str(frontend_dir),
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-        pnpm = shutil.which("pnpm", path=str(node_bin.parent)) or shutil.which("pnpm")
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        pass
+    # Check if pnpm is already usable (not a broken corepack shim)
+    pnpm_path = shutil.which("pnpm", path=str(node_bin.parent)) or shutil.which("pnpm")
+    pnpm_ok = False
+    if pnpm_path:
+        try:
+            subprocess.check_call(
+                [pnpm_path, "--version"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                env=env,
+            )
+            pnpm_ok = True
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            pass
 
-    # Fallback: install pnpm via npm
-    if not pnpm:
-        _log("Corepack unavailable or outdated, installing pnpm via npm ...")
+    if not pnpm_ok:
+        _log("Installing pnpm via npm ...")
         subprocess.check_call([str(npm), "install", "-g", "pnpm"], env=env)
-        pnpm = shutil.which("pnpm", path=str(node_bin.parent)) or shutil.which("pnpm")
+        # Re-resolve after install
+        pnpm_path = shutil.which("pnpm", path=str(node_bin.parent)) or shutil.which("pnpm")
+        if not pnpm_path:
+            raise RuntimeError("pnpm not found after npm install -g pnpm.")
 
-    # Final fallback: use npx pnpm
-    if not pnpm:
-        npx = node_bin.parent / ("npx.cmd" if profile.os_name == "Windows" else "npx")
-        if npx.exists():
-            _log("Using npx to run pnpm ...")
-            pnpm_cmd = [str(npx), "pnpm"]
-        else:
-            raise RuntimeError("pnpm not found after installation.")
-    else:
-        pnpm_cmd = [pnpm]
+    pnpm_cmd = [pnpm_path]
 
     _log("Installing frontend dependencies ...")
     subprocess.check_call(pnpm_cmd + ["install"], env=env, cwd=str(frontend_dir))
