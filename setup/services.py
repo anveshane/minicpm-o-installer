@@ -90,15 +90,70 @@ def _generate_ssl_cert(cert_dir: Path, ip: str) -> None:
 
     _log(f"Generating self-signed SSL certificate for {ip} ...")
     cert_dir.mkdir(parents=True, exist_ok=True)
-    subprocess.check_call([
-        "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
-        "-keyout", str(key_file),
-        "-out", str(cert_file),
-        "-days", "365",
-        "-subj", f"/CN={ip}",
-        "-addext", f"subjectAltName=IP:{ip},IP:127.0.0.1,DNS:localhost",
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    _log("SSL certificate generated.")
+
+    # Try openssl first (available on macOS/Linux and some Windows setups)
+    openssl = shutil.which("openssl")
+    if openssl:
+        subprocess.check_call([
+            openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", str(key_file),
+            "-out", str(cert_file),
+            "-days", "365",
+            "-subj", f"/CN={ip}",
+            "-addext", f"subjectAltName=IP:{ip},IP:127.0.0.1,DNS:localhost",
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        _log("SSL certificate generated (openssl).")
+        return
+
+    # Fallback: generate cert using Python cryptography or stdlib
+    # Use a small inline script with the 'cryptography' library if available,
+    # otherwise generate via the venv.
+    _log("openssl not found, generating cert via Python ...")
+    script = f'''
+import datetime, ipaddress
+try:
+    from cryptography import x509
+    from cryptography.x509.oid import NameOID
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+except ImportError:
+    import subprocess, sys
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "cryptography"],
+                          stdout=subprocess.DEVNULL)
+    from cryptography import x509
+    from cryptography.x509.oid import NameOID
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "{ip}")])
+now = datetime.datetime.utcnow()
+san = x509.SubjectAlternativeName([
+    x509.IPAddress(ipaddress.ip_address("{ip}")),
+    x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
+    x509.DNSName("localhost"),
+])
+cert = (
+    x509.CertificateBuilder()
+    .subject_name(name)
+    .issuer_name(name)
+    .public_key(key.public_key())
+    .serial_number(x509.random_serial_number())
+    .not_valid_before(now)
+    .not_valid_after(now + datetime.timedelta(days=365))
+    .add_extension(san, critical=False)
+    .sign(key, hashes.SHA256())
+)
+with open(r"{key_file}", "wb") as f:
+    f.write(key.private_bytes(serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption()))
+with open(r"{cert_file}", "wb") as f:
+    f.write(cert.public_bytes(serialization.Encoding.PEM))
+print("done")
+'''
+    subprocess.check_call([sys.executable, "-c", script])
+    _log("SSL certificate generated (Python).")
 
 
 # ---------------------------------------------------------------------------
