@@ -234,6 +234,8 @@ class ServiceManager:
         if venv_bin.exists():
             paths.append(str(venv_bin))
         env["PATH"] = os.pathsep.join(paths) + os.pathsep + env.get("PATH", "")
+        # Prevent UnicodeEncodeError from Chinese/emoji print() on Windows cp1252
+        env["PYTHONIOENCODING"] = "utf-8"
         if extra:
             env.update(extra)
         return env
