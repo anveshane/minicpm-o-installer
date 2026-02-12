@@ -233,10 +233,10 @@ function addFile(file) {
   renderAttachments();
 
   if (isVideo) {
-    // Extract a frame from the video as JPEG (llama-server only accepts images)
-    extractVideoFrame(blobUrl).then(({ base64, mime }) => {
-      attachments[idx].base64 = base64;
-      attachments[idx].frameMime = mime;
+    // Extract frames at ~1 FPS (max 64) — llama-server needs individual image_url entries
+    extractVideoFrames(blobUrl).then(frames => {
+      attachments[idx].frames = frames; // array of { base64, mime }
+      attachments[idx].frameCount = frames.length;
       attachments[idx].loading = false;
       renderAttachments();
     }).catch(() => {
@@ -261,23 +261,46 @@ function addFile(file) {
   }
 }
 
-function extractVideoFrame(videoUrl) {
+const MAX_VIDEO_FRAMES = 64;
+
+function extractVideoFrames(videoUrl) {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
     video.muted = true;
     video.preload = 'auto';
-    video.onloadeddata = () => {
-      // Seek to 1s or 10% of duration, whichever is smaller
-      video.currentTime = Math.min(1, video.duration * 0.1);
-    };
-    video.onseeked = () => {
+    video.onloadedmetadata = () => {
+      const duration = video.duration;
+      // Sample at 1 FPS, then cap at MAX_VIDEO_FRAMES
+      let count = Math.max(1, Math.floor(duration));
+      if (count > MAX_VIDEO_FRAMES) count = MAX_VIDEO_FRAMES;
+      const interval = duration / count;
+      const times = [];
+      for (let i = 0; i < count; i++) times.push(i * interval);
+
+      const frames = [];
       const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext('2d').drawImage(video, 0, 0);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-      const base64 = dataUrl.split(',')[1];
-      resolve({ base64, mime: 'image/jpeg' });
+      const ctx = canvas.getContext('2d');
+      let idx = 0;
+
+      function grabNext() {
+        if (idx >= times.length) {
+          resolve(frames);
+          return;
+        }
+        video.currentTime = times[idx];
+      }
+
+      video.onseeked = () => {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        frames.push({ base64: dataUrl.split(',')[1], mime: 'image/jpeg' });
+        idx++;
+        grabNext();
+      };
+
+      grabNext();
     };
     video.onerror = reject;
     video.src = videoUrl;
@@ -296,7 +319,8 @@ function renderAttachments() {
     if (a.type === 'image') {
       preview = `<img src="${a.blobUrl}" alt="${escHtml(a.name)}">`;
     } else if (a.type === 'video') {
-      preview = `<video src="${a.blobUrl}" muted></video>`;
+      const fc = a.frameCount ? `<span class="file-size">${a.frameCount} frames</span>` : '';
+      preview = `<video src="${a.blobUrl}" muted></video>${fc}`;
     } else {
       preview = `<span>${escHtml(a.name)}</span>`;
     }
@@ -365,12 +389,15 @@ async function sendMessage() {
       });
       displayParts.push(`<img src="${a.blobUrl}" alt="${escHtml(a.name)}">`);
     } else if (a.type === 'video') {
-      // Send extracted frame as image (llama-server only accepts image formats)
-      const frameMime = a.frameMime || 'image/jpeg';
-      contentParts.push({
-        type: 'image_url',
-        image_url: { url: `data:${frameMime};base64,${a.base64}` }
-      });
+      // Send each extracted frame as a separate image_url entry
+      if (a.frames) {
+        for (const frame of a.frames) {
+          contentParts.push({
+            type: 'image_url',
+            image_url: { url: `data:${frame.mime};base64,${frame.base64}` }
+          });
+        }
+      }
       displayParts.push(`<video controls playsinline src="${a.blobUrl}"></video>`);
     } else {
       contentParts.push({
