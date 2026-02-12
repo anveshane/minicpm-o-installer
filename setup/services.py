@@ -195,7 +195,7 @@ print("done")
 class ServiceManager:
     """Manages the lifecycle of all 4 services."""
 
-    SERVICE_NAMES = ["livekit", "backend", "cpp_server", "frontend"]
+    SERVICE_NAMES = ["livekit", "backend", "cpp_server", "frontend", "simple"]
 
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
@@ -419,6 +419,79 @@ class ServiceManager:
         self._start_process("frontend", cmd, cfg.frontend_port, env, frontend_dir, 30)
 
     # --- Public API ---
+
+    def start_simple(self) -> None:
+        """Start only llama-server with the simple web UI."""
+        _log("========== Starting Simple Chat (llama-server only) ==========")
+
+        cfg = self.cfg
+        port = cfg.cpp_server_port
+        simple_ui_dir = cfg.app_dir / "simple-ui"
+
+        if not simple_ui_dir.exists():
+            raise RuntimeError(f"Simple UI not found: {simple_ui_dir}")
+
+        # Find llama-server binary
+        server_path = cfg.bin_dir / cfg.llama_server_name
+        if not server_path.exists():
+            raise RuntimeError(
+                f"llama-server not found at {server_path}. "
+                f"Run './install.sh simple' to download it first."
+            )
+
+        # Find GGUF model
+        quant = cfg.llm_quant or "Q4_K_M"
+        gguf_file = None
+        if cfg.model_dir.exists():
+            # Try exact quant match first
+            for f in cfg.model_dir.glob(f"MiniCPM-o-4_5-{quant}.gguf"):
+                gguf_file = f
+                break
+            # Fallback: any .gguf
+            if not gguf_file:
+                for f in cfg.model_dir.glob("*.gguf"):
+                    gguf_file = f
+                    break
+
+        if not gguf_file:
+            raise RuntimeError(
+                f"No GGUF model found in {cfg.model_dir}. "
+                f"Run './install.sh simple' to download models."
+            )
+
+        _log(f"Model: {gguf_file.name}")
+        _log(f"UI: {simple_ui_dir}")
+
+        # Build environment with library paths for GPU support
+        env = self._build_env()
+
+        # Add llama-server's lib dir to library path
+        lib_dir = cfg.bin_dir
+        if sys.platform == "darwin":
+            env["DYLD_LIBRARY_PATH"] = str(lib_dir) + ":" + env.get("DYLD_LIBRARY_PATH", "")
+        elif sys.platform == "linux":
+            env["LD_LIBRARY_PATH"] = str(lib_dir) + ":" + env.get("LD_LIBRARY_PATH", "")
+        # On Windows, bin_dir is already on PATH from _build_env()
+
+        cmd = [
+            str(server_path),
+            "--model", str(gguf_file),
+            "--host", "0.0.0.0",
+            "--port", str(port),
+            "--ctx-size", "8192",
+            "--n-gpu-layers", "99",
+            "--path", str(simple_ui_dir),
+        ]
+
+        self._start_process("simple", cmd, port, env, cfg.bin_dir, 180)
+
+        ip = get_local_ip()
+        print()
+        print("=" * 55)
+        print(f"  Simple Chat is ready!")
+        print(f"  Open: http://localhost:{port}")
+        print(f"  Or:   http://{ip}:{port}")
+        print("=" * 55)
 
     def start_all(self) -> None:
         """Start all 4 services in order."""

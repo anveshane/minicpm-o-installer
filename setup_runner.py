@@ -15,6 +15,7 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", help="Command to run")
     sub.add_parser("install", help="Download all dependencies")
     sub.add_parser("start", help="Install (if needed) and start all services")
+    sub.add_parser("simple", help="Download llama-server + models, then start simple chat UI")
     sub.add_parser("stop", help="Stop all services")
     sub.add_parser("status", help="Show service status")
     sub.add_parser("profile", help="Show system profile (GPU, RAM, recommended quant)")
@@ -58,6 +59,32 @@ def main() -> None:
     if command == "profile":
         profile = detect_system()
         print(profile.to_json())
+        return
+
+    # --- Simple mode ---
+    if command == "simple":
+        profile = detect_system()
+        if args.gpu:
+            profile.gpu_backend = args.gpu
+
+        print(f"  System:  {profile.os_name} {profile.arch}")
+        print(f"  GPU:     {profile.gpu_name} ({profile.gpu_backend})")
+        print(f"  VRAM:    {profile.vram_mb} MB  |  RAM: {profile.ram_mb} MB")
+        print(f"  Quant:   {cfg.llm_quant or profile.recommended_quant}")
+        print()
+
+        from setup.downloader import download_simple
+        failures = download_simple(profile, cfg) or []
+
+        critical = {"llama-server", "Models"}
+        if critical & set(failures):
+            print(f"\n  Cannot start: critical downloads failed ({', '.join(critical & set(failures))})")
+            print("  Fix the errors above and re-run: install.sh simple")
+            sys.exit(1)
+
+        from setup.services import ServiceManager
+        mgr = ServiceManager(cfg)
+        mgr.start_simple()
         return
 
     # --- Install / Start ---

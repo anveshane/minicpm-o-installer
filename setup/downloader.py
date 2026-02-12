@@ -514,6 +514,69 @@ def build_frontend(profile: SystemProfile, cfg: Config) -> None:
 # Main download_all orchestrator
 # ---------------------------------------------------------------------------
 
+def download_simple(profile: SystemProfile, cfg: Config) -> list[str]:
+    """Download only llama-server + models (no livekit, node, venv, frontend)."""
+    quant = cfg.llm_quant or profile.recommended_quant
+    _log(f"=== Starting simple mode downloads (quant={quant}, backend={profile.gpu_backend}) ===")
+
+    failures: list[str] = []
+
+    def _try(name: str, fn, *args) -> None:
+        try:
+            fn(*args)
+        except Exception as e:
+            _log(f"ERROR: {name} failed: {e}")
+            failures.append(name)
+
+    # 1. llama-server binary
+    _try("llama-server", download_llama_server, profile, cfg)
+
+    # 2. Models — need venv only for huggingface_hub download
+    #    Create a minimal venv with just huggingface_hub
+    _try("Python venv", _create_minimal_venv, cfg)
+
+    if "Python venv" not in failures:
+        _try("Models", download_models, cfg, quant)
+    else:
+        _log("Skipping model download (venv creation failed).")
+        failures.append("Models")
+
+    if failures:
+        _log(f"=== Simple downloads finished with errors: {', '.join(failures)} ===")
+    else:
+        _log("=== Simple mode downloads complete ===")
+
+    return failures
+
+
+def _create_minimal_venv(cfg: Config) -> None:
+    """Create a minimal venv with just huggingface_hub for model downloads."""
+    if sys.platform == "win32":
+        venv_python = str(cfg.venv_dir / "Scripts" / "python")
+    else:
+        venv_python = str(cfg.venv_dir / "bin" / "python")
+
+    if not cfg.venv_dir.exists():
+        _log("Creating minimal Python venv for model downloads ...")
+        subprocess.check_call([sys.executable, "-m", "venv", str(cfg.venv_dir)])
+
+    # Check if huggingface_hub already installed
+    try:
+        subprocess.check_call(
+            [venv_python, "-c", "import huggingface_hub"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        _log("huggingface_hub already available.")
+        return
+    except subprocess.CalledProcessError:
+        pass
+
+    _log("Installing huggingface_hub ...")
+    pip = str(cfg.venv_dir / ("Scripts" if sys.platform == "win32" else "bin") / "pip")
+    subprocess.check_call([pip, "install", "huggingface_hub"])
+    _log("huggingface_hub installed.")
+
+
 def download_all(profile: SystemProfile, cfg: Config) -> None:
     """Download all dependencies: binaries, venv, models, frontend."""
     quant = cfg.llm_quant or profile.recommended_quant
